@@ -444,18 +444,34 @@ def fetch_all_ids(token, filter_groups, properties=None):
             "properties": properties or ["email"],
             "limit": 100,
         }
+
         if after:
-            body["after"] = after
-        resp = requests.post(SEARCH_ENDPOINT, headers=headers, json=body)
-        resp.raise_for_status()
+          body["after"] = after
+
+        MAX_RETRIES = 5
+
+        for attempt in range(MAX_RETRIES):
+          resp = requests.post(SEARCH_ENDPOINT, headers=headers, json=body)
+
+          if resp.status_code == 429:
+              retry_after = int(resp.headers.get("Retry-After", 5))
+              print(f"HubSpot rate limit hit. Waiting {retry_after}s...")
+              time.sleep(retry_after)
+              continue
+
+          resp.raise_for_status()
+            break
+        else:
+          resp.raise_for_status()
+
         data = resp.json()
+
         for c in data.get("results", []):
             out[c["id"]] = c.get("properties", {})
+    
         after = data.get("paging", {}).get("next", {}).get("after")
         if not after:
             break
-    return out
-
 
 def compute_meta_lead_count(token, start_ms, end_ms, income_values=None, income_unknown=False,
                             qualified_values=None, appointment_set=False, customer_entered=False,
