@@ -649,7 +649,19 @@ def get_count(token, filter_groups):
         "properties": ["email"],
         "limit": 1,
     }
-    resp = requests.post(SEARCH_ENDPOINT, headers=headers, json=body)
+
+    MAX_RETRIES = 5
+    for attempt in range(MAX_RETRIES):
+        resp = requests.post(SEARCH_ENDPOINT, headers=headers, json=body)
+        if resp.status_code == 429:
+            retry_after = int(resp.headers.get("Retry-After", 5))
+            print(f"HubSpot rate limit hit. Waiting {retry_after}s...")
+            time.sleep(retry_after)
+            continue
+        resp.raise_for_status()
+        return resp.json().get("total", 0)
+
+    # Exhausted retries — raise on the last response so the failure is visible
     resp.raise_for_status()
     return resp.json().get("total", 0)
 
