@@ -103,6 +103,7 @@ import os
 import sys
 import json
 import calendar
+import time
 import requests
 from datetime import datetime
 import pytz
@@ -429,12 +430,6 @@ def _meta_date_filters(start_ms, end_ms):
 
 
 def fetch_all_ids(token, filter_groups, properties=None):
-    """Paginates crm/v3/objects/contacts/search and returns {id: properties_dict}
-    for every matching contact. Used where we need actual contact IDs (to
-    dedupe across OR'd conditions ourselves) rather than just a total count.
-    NOTE: HubSpot's Search API caps total retrievable results per query at
-    10,000 (via pagination offset limits). If a period ever legitimately
-    matches more than that, split the query into narrower date sub-ranges."""
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     out = {}
     after = None
@@ -444,34 +439,31 @@ def fetch_all_ids(token, filter_groups, properties=None):
             "properties": properties or ["email"],
             "limit": 100,
         }
-
         if after:
-          body["after"] = after
+            body["after"] = after
 
         MAX_RETRIES = 5
-
         for attempt in range(MAX_RETRIES):
-          resp = requests.post(SEARCH_ENDPOINT, headers=headers, json=body)
-
-          if resp.status_code == 429:
-              retry_after = int(resp.headers.get("Retry-After", 5))
-              print(f"HubSpot rate limit hit. Waiting {retry_after}s...")
-              time.sleep(retry_after)
-              continue
-
-          resp.raise_for_status()
+            resp = requests.post(SEARCH_ENDPOINT, headers=headers, json=body)
+            if resp.status_code == 429:
+                retry_after = int(resp.headers.get("Retry-After", 5))
+                print(f"HubSpot rate limit hit. Waiting {retry_after}s...")
+                time.sleep(retry_after)
+                continue
+            resp.raise_for_status()
             break
         else:
-          resp.raise_for_status()
+            resp.raise_for_status()
 
         data = resp.json()
-
         for c in data.get("results", []):
             out[c["id"]] = c.get("properties", {})
-    
+
         after = data.get("paging", {}).get("next", {}).get("after")
         if not after:
             break
+
+    return out
 
 def compute_meta_lead_count(token, start_ms, end_ms, income_values=None, income_unknown=False,
                             qualified_values=None, appointment_set=False, customer_entered=False,
